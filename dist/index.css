@@ -22,8 +22,8 @@ body {
     display: none;
 }
 
-#app.preview > #preview {
-    max-width: 680px;
+#app.preview > #preview-wrapper > #preview {
+    max-width: 720px;
     margin: 0 auto;
 }
 
@@ -37,11 +37,10 @@ body {
 }
 
 #preview {
-    /* font-family: 'texroman'; */
-    overflow-y: auto; 
     overflow-x: hidden; 
     font-size: 15px;
     padding: 20px;
+    height: auto;
 }
 
 #notification {

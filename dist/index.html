@@ -11,7 +11,9 @@
 <body>
     <main id="app">
         <textarea id="input" oninput="render()">{{VALUE}}</textarea>
-        <div id="preview"></div>
+        <div id="preview-wrapper">
+            <div id="preview"></div>
+        </div>
     </main>
     <div id="notification"></div>
     <script src="/marked.min.js"></script>
