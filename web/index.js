@@ -6,24 +6,29 @@ const app = document.getElementById('app');
 let timeout;
 
 // dark mode
-let darkmode = localStorage.getItem('darkmode') === '1'
+let darkmode = localStorage.getItem('darkmode') === '1';
 if (darkmode) {
-    app.classList.add('dark-mode')
+    app.classList.add('dark-mode');
 }
 
 
 // preview mode
-let previewState = localStorage.getItem('edit') !== '1'
-console.log(previewState)
+// it's the inverse of edit, so it is automatically true
+// if the edit item doesn't exist in localStorage
+let previewState = localStorage.getItem('edit') !== '1';
 if (previewState) {
     app.classList.add('preview')
 }
 
+// on initial page load
 preview.innerHTML = marked(input.value);
 
 function render() {
     preview.innerHTML = marked(input.value);
 
+    // simple timeout function, so that the documents doesn't get
+    // saved on every keystroke, but rather 500ms after the user has
+    // stopped typing
     clearTimeout(timeout);
     timeout = setTimeout(_ => {
         fetch(window.location, {
@@ -35,6 +40,8 @@ function render() {
     }, 500)
 }
 
+// simple notification, used to alert the user if the document
+// couldn't get saved. For now it has the fixed color red
 function setNotification(text) {
     notification.innerText = text;
     notification.style.display = 'block';

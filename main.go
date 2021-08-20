@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,10 +13,20 @@ import (
 	"time"
 )
 
+func init() {
+	// create initial needed folders
+	if err := os.MkdirAll("data/files", 0700); err != nil {
+		panic(err)
+	}
+	if err := os.MkdirAll("data/attachments", 0700); err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	srv := http.Server{
 		Addr:         ":8000",
-		Handler:      writer(),
+		Handler:      notes(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -25,23 +34,26 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func writer() http.HandlerFunc {
-	index, err := ioutil.ReadFile("dist/index.html")
+func notes() http.HandlerFunc {
+	// read index.html at start
+	// so it doesn't have to be read on every page load
+	index, err := ioutil.ReadFile("web/index.html")
 	if err != nil {
 		panic(err)
 	}
-	indexParts := bytes.Split(index, []byte("{{VALUE}}"))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		if path == "/" {
+		// index
+		if path == "/" || path == "/index.html" {
+			// TODO: Show all files
 			// https://gist.github.com/mxlje/8e6279a90dc8f79f65fa8c855e1d7a79
-			// render recursive tree
 			http.Error(w, "usage: /<name>.md", http.StatusBadRequest)
 			return
 		}
 
+		// markdown files
 		if strings.HasSuffix(path, ".md") {
 			// all files will be lowercase
 			path = "data/files" + strings.ToLower(path)
@@ -50,40 +62,36 @@ func writer() http.HandlerFunc {
 			case http.MethodGet:
 				file, err := os.Open(path)
 				if err != nil {
-					if os.IsNotExist(err) {
-						parts := strings.Split(path, "/")
-
-						// create all folders
-						err = os.MkdirAll(strings.Join(
-							parts[:len(parts)-1], "/"), 0700)
-						if err != nil {
-							http.Error(w, err.Error(),
-								http.StatusInternalServerError)
-							return
-						}
-						// investigate
-						file, err = os.Create(path)
-						if err != nil {
-							http.Error(w, err.Error(),
-								http.StatusInternalServerError)
-							return
-						}
+					if !os.IsNotExist(err) {
+						http.Error(w, err.Error(),
+							http.StatusInternalServerError)
 						return
 					}
 
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+					parts := strings.Split(path, "/")
+					err = os.MkdirAll(
+						strings.Join(parts[:len(parts)-1], "/"), 0700)
+					if err != nil {
+						http.Error(w, err.Error(),
+							http.StatusInternalServerError)
+						return
+					}
+
+					file, err = os.Create(path)
+					if err != nil {
+						http.Error(w, err.Error(),
+							http.StatusInternalServerError)
+						return
+					}
 				}
 
-				bytes, err := ioutil.ReadAll(file)
+				fileBytes, err := ioutil.ReadAll(file)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
 
-				// this looks ugly
-				// explanation: indexPart[0] + bytes + indexParts[1]
-				w.Write(append(indexParts[0],
-					append(bytes, indexParts[1]...)...))
+				w.Write(bytes.ReplaceAll(index, []byte("{{VALUE}}"), fileBytes))
 			case http.MethodPut:
 				file, err := os.OpenFile(path, os.O_RDWR|os.O_TRUNC, 0700)
 				if err != nil {
@@ -96,13 +104,11 @@ func writer() http.HandlerFunc {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-			default:
-				http.Error(w, fmt.Sprintf("unsupported method: %s", r.Method),
-					http.StatusInternalServerError)
 			}
 			return
 		}
 
+		// attachments
 		switch r.Method {
 		case http.MethodGet:
 			// if it starts with /attachments/ it's an attachment
@@ -115,8 +121,8 @@ func writer() http.HandlerFunc {
 				return
 			}
 
-			// serve default file
-			http.ServeFile(w, r, "dist"+path)
+			// serve static assets from /web folder
+			http.ServeFile(w, r, "web"+path)
 		case http.MethodPost:
 			if path != "/attachments" {
 				http.Error(w, "can only POST to /attachments",
@@ -124,24 +130,25 @@ func writer() http.HandlerFunc {
 				return
 			}
 
-			// this will be the id of the asset
-			id := strconv.Itoa(int(time.Now().UnixNano()))
-
-			err := r.ParseMultipartForm(10_000_000) // limit your max input length!
+			err := r.ParseMultipartForm(10_000_000)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			// in your case file would be fileupload
-			file, _, err := r.FormFile("file")
+			file, header, err := r.FormFile("file")
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
-			loc := fmt.Sprintf("data%s/%s", path, id)
-			localFile, err := os.OpenFile(loc, os.O_WRONLY|os.O_CREATE, 0700)
+			// use it as a unique specifier for attachments, otherwise
+			// files with the same name could be overridden
+			id := strconv.Itoa(int(time.Now().UnixNano()))
+			name := "/attachments/" + id + "_" + header.Filename
+			localFile, err := os.OpenFile("data"+name,
+				os.O_WRONLY|os.O_CREATE, 0700)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -154,11 +161,8 @@ func writer() http.HandlerFunc {
 			}
 
 			json.NewEncoder(w).Encode(map[string]string{
-				"file": fmt.Sprintf("/attachments/%s", id),
+				"file": name,
 			})
-		default:
-			http.Error(w, fmt.Sprintf("unsupported method: %s", r.Method),
-				http.StatusInternalServerError)
 		}
 	}
 }
