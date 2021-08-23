@@ -57,6 +57,7 @@ func notes() http.HandlerFunc {
 		if strings.HasSuffix(path, ".md") {
 			// all files will be lowercase
 			path = "data/files" + strings.ToLower(path)
+			parts := strings.Split(path, "/")
 
 			switch r.Method {
 			case http.MethodGet:
@@ -68,7 +69,6 @@ func notes() http.HandlerFunc {
 						return
 					}
 
-					parts := strings.Split(path, "/")
 					err = os.MkdirAll(
 						strings.Join(parts[:len(parts)-1], "/"), 0700)
 					if err != nil {
@@ -91,7 +91,14 @@ func notes() http.HandlerFunc {
 					return
 				}
 
-				w.Write(bytes.ReplaceAll(index, []byte("{{VALUE}}"), fileBytes))
+				title := parts[len(parts)-1]
+				res := bytes.ReplaceAll(index, []byte("{{VALUE}}"), fileBytes)
+				res = bytes.ReplaceAll(res, []byte("{{TITLE}}"), []byte(title))
+				_, err = w.Write(res)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 			case http.MethodPut:
 				file, err := os.OpenFile(path, os.O_RDWR|os.O_TRUNC, 0700)
 				if err != nil {
